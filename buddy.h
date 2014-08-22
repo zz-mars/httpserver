@@ -15,55 +15,60 @@
 
 #define BUDDY_MAX_ORDER         32
 
-#define BUDDY_TAKEN             0x80
-#define BUDDY_ORDER_MASK        0x7f
+#define BUDDY_TAKEN_FREE_MASK   0x80000000
+#define BUDDY_ORDER_MASK        0x7c000000
+#define BUDDY_NUMBER_MASK       0x03ffffff
 
-#define NULL_UNIT_NO    -1
+#define NULL_UNIT_NO            BUDDY_NUMBER_MASK
 
-// encode the unit_no & order & free&taken flag in one uint32_t
-// make most use of the memory
-#pragma pack(1)
-struct SMemUnitDescriptor {
-//    struct SMemUnitDescriptor * next;
-    // next unit number in the list, 
-    // set to -1 if this is the last one
-    int m_iNext;
-    // free&taken flag and order are encoded in m_u8Flags
-    uint8_t m_u8Flags;
-};
-#pragma pack()
+// inside the flag : 
+//     1      +   5   +     26
+// free&taken + order + unit_number 
 
 #define BUDDY_ORDER(pBuddyUnit)  ({  \
-        struct SMemUnitDescriptor * _pBuddyUnit = (pBuddyUnit); \
-        (uint32_t)(_pBuddyUnit->m_u8Flags & BUDDY_ORDER_MASK);})
+        uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
+        uint32_t _order = (*_pBuddyUnit & BUDDY_ORDER_MASK);    \
+        (_order >> 26); })
 
 #define SET_BUDDY_ORDER(pBuddyUnit, buddy_order) do {    \
-    struct SMemUnitDescriptor * _pBuddyUnit = (pBuddyUnit); \
-    uint8_t _order = (uint8_t)(buddy_order);  \
-    _pBuddyUnit->m_u8Flags &= (~BUDDY_ORDER_MASK); \
-    _pBuddyUnit->m_u8Flags |= _order;  \
+    uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
+    uint32_t _order = (uint32_t)(buddy_order);  \
+    _order <<= 26;  \
+    *_pBuddyUnit &= (~BUDDY_ORDER_MASK); \
+    *_pBuddyUnit |= _order;  \
 } while (0)
 
 // is taken?
 #define IS_BUDDY_BLOCK_TAKEN(pBuddyUnit)    ({  \
-        struct SMemUnitDescriptor * _pBuddyUnit = (pBuddyUnit); \
-        ((_pBuddyUnit->m_u8Flags & BUDDY_TAKEN) == BUDDY_TAKEN);})
+        uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
+        ((*_pBuddyUnit & BUDDY_TAKEN_FREE_MASK) == BUDDY_TAKEN_FREE_MASK);})
 
 // is free?
 #define IS_BUDDY_BLOCK_FREE(pBuddyUnit) ({  \
-        struct SMemUnitDescriptor * _pBuddyUnit = (pBuddyUnit); \
-        ((_pBuddyUnit->m_u8Flags & BUDDY_TAKEN) == 0);})
+        uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
+        ((*_pBuddyUnit & BUDDY_TAKEN_FREE_MASK) == 0);})
 
 // set taken
 #define SET_BUDDY_BLOCK_TAKEN(pBuddyUnit)    do {    \
-    struct SMemUnitDescriptor * _pBuddyUnit = (pBuddyUnit); \
-    _pBuddyUnit->m_u8Flags |= BUDDY_TAKEN; \
+    uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
+    *_pBuddyUnit |= BUDDY_TAKEN_FREE_MASK; \
 } while (0)
 
 // set free
 #define SET_BUDDY_BLOCK_FREE(pBuddyUnit)    do {    \
-    struct SMemUnitDescriptor * _pBuddyUnit = (pBuddyUnit); \
-    _pBuddyUnit->m_u8Flags &= (~BUDDY_TAKEN); \
+    uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
+    *_pBuddyUnit &= (~BUDDY_TAKEN_FREE_MASK); \
+} while (0)
+
+#define BUDDY_NEXT_UNIT(pBuddyUnit) ({    \
+        uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
+        (*_pBuddyUnit & BUDDY_NUMBER_MASK); })
+
+#define SET_BUDDY_NEXT_UNIT(pBuddyUnit, unit_no)  do {    \
+    uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
+    uint32_t _unitno = (uint32_t)(unit_no); \
+    *_pBuddyUnit &= (~BUDDY_NUMBER_MASK);   \
+    *_pBuddyUnit |= _unitno;    \
 } while (0)
 
 struct SStrBuddy {
@@ -73,10 +78,10 @@ struct SStrBuddy {
 
     // order of buddy system
     uint32_t m_u32BuddyOrder;
-    int * m_pIOrderArray;
+    uint32_t * m_pIOrderArray;
 
     // mem-unit descriptor 
-    struct SMemUnitDescriptor * m_pMemUnitDescBase;
+    uint32_t * m_pMemUnitDescBase;
     uint32_t m_u32MemUnitDescNum;
 
     // str allocation region

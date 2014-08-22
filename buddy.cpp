@@ -5,28 +5,26 @@
 #include <string.h>
 #include <unistd.h>
 
-static inline struct SMemUnitDescriptor * DESC_OF_UNIT_NO(struct SStrBuddy * pSStrBuddy, int iUnitNo) {
+static inline uint32_t * DESC_OF_UNIT_NO(struct SStrBuddy * pSStrBuddy, uint32_t iUnitNo) {
     return (pSStrBuddy->m_pMemUnitDescBase + iUnitNo);
 }
 
-static inline int UNIT_NO_OF_DESC(struct SStrBuddy * pSStrBuddy, struct SMemUnitDescriptor * pUnit) {
-    return (int)(pUnit - pSStrBuddy->m_pMemUnitDescBase);
+static inline uint32_t UNIT_NO_OF_DESC(struct SStrBuddy * pSStrBuddy, uint32_t * pUnit) {
+    return (uint32_t)(pUnit - pSStrBuddy->m_pMemUnitDescBase);
 }
 
-static inline int NEXT_UNIT_NO(struct SStrBuddy * pSStrBuddy, int iUnitNo) {
-    struct SMemUnitDescriptor * _sm = DESC_OF_UNIT_NO(pSStrBuddy, iUnitNo);
-    return _sm->m_iNext;
+static inline uint32_t NEXT_UNIT_NO(struct SStrBuddy * pSStrBuddy, uint32_t iUnitNo) {
+    return BUDDY_NEXT_UNIT(DESC_OF_UNIT_NO(pSStrBuddy, iUnitNo));
 }
 
 // memory layout
 // SStrBuddy + order_array + desc_array + str_mem_region
-
 static inline void DisplayOrderArray(struct SStrBuddy *pSStrBuddy) {
     printf("---------------- order-array ----------------\n");
     for(uint32_t uiOrder=0;uiOrder<=pSStrBuddy->m_u32BuddyOrder;uiOrder++) {
         uint32_t uiOrderNum = 0;
         printf("order[%2u] -> ", uiOrder);
-        int iUnitNo = pSStrBuddy->m_pIOrderArray[uiOrder];
+        uint32_t iUnitNo = pSStrBuddy->m_pIOrderArray[uiOrder];
         while(iUnitNo != NULL_UNIT_NO) {
             iUnitNo = NEXT_UNIT_NO(pSStrBuddy, iUnitNo);
             uiOrderNum++;
@@ -45,11 +43,11 @@ struct SStrBuddy * StrBuddyInit(uint32_t uiUnitNumber) {
         return NULL;
     }
     uint32_t u32Order;
-    uiUnitNumber = NearestPowerof2(uiUnitNumber, &u32Order);
+    uiUnitNumber = NextPowerof2(uiUnitNumber, &u32Order);
 
     printf("order -> %u unit-number -> %u\n", u32Order, uiUnitNumber);
 
-    if(u32Order < 10 || u32Order > BUDDY_MAX_ORDER) {
+    if(u32Order < 10 || u32Order >= BUDDY_MAX_ORDER) {
         fprintf(stderr, "StrBuddyInit -> EINVAL : unit_num -> %u order -> %u\n", 
                 uiUnitNumber, u32Order);
         return NULL;
@@ -57,8 +55,8 @@ struct SStrBuddy * StrBuddyInit(uint32_t uiUnitNumber) {
 
     // make sure enough memory is allocated
     uint32_t u32TotalMemSize = sizeof(struct SStrBuddy) * 2 + 
-        sizeof(struct SMemUnitDescriptor *) * (u32Order + 1) +
-        sizeof(struct SMemUnitDescriptor) * (uiUnitNumber + 1) +
+        sizeof(uint32_t *) * (u32Order + 1) +
+        sizeof(uint32_t) * (uiUnitNumber + 1) +
         BUDDY_UNIT_SZ * (uiUnitNumber + 1);
 
     char *pTotalMem = (char*)malloc(u32TotalMemSize);
@@ -72,19 +70,19 @@ struct SStrBuddy * StrBuddyInit(uint32_t uiUnitNumber) {
             sizeof(struct SStrBuddy));
 
     printf("sizeof(SStrBuddy) -> %u sizeof(SMemUnitDescriptor*) -> %u sizeof(SMemUnitDescriptor) -> %u\n",
-            sizeof(struct SStrBuddy), sizeof(struct SMemUnitDescriptor*), sizeof(struct SMemUnitDescriptor));
+            sizeof(struct SStrBuddy), sizeof(uint32_t), sizeof(uint32_t));
     // total mem 
     pSStrBuddy->m_pMem = pTotalMem;
     pSStrBuddy->m_u32MemSize = u32TotalMemSize;
     printf("total_mem -> %0x size -> %u\n", pSStrBuddy->m_pMem, pSStrBuddy->m_u32MemSize);
     // order
     pSStrBuddy->m_u32BuddyOrder = u32Order;
-    pSStrBuddy->m_pIOrderArray = (int*)AlignTo((uint64_t)(pSStrBuddy+1), sizeof(int));
+    pSStrBuddy->m_pIOrderArray = (uint32_t*)AlignTo((uint64_t)(pSStrBuddy+1), sizeof(uint32_t));
     printf("order_array -> %0x order -> %u\n", pSStrBuddy->m_pIOrderArray, pSStrBuddy->m_u32BuddyOrder);
     // mem-unit descriptor array
     pSStrBuddy->m_u32MemUnitDescNum = uiUnitNumber;
-    pSStrBuddy->m_pMemUnitDescBase = (struct SMemUnitDescriptor*)AlignTo((uint64_t)(pSStrBuddy->m_pIOrderArray+pSStrBuddy->m_u32BuddyOrder+1), 
-            sizeof(struct SMemUnitDescriptor));
+    pSStrBuddy->m_pMemUnitDescBase = (uint32_t*)AlignTo((uint64_t)(pSStrBuddy->m_pIOrderArray+pSStrBuddy->m_u32BuddyOrder+1), 
+            sizeof(uint32_t));
     printf("mem_unit_desc -> %0x number -> %u\n", pSStrBuddy->m_pMemUnitDescBase, pSStrBuddy->m_u32MemUnitDescNum);
 
     // string memeory region
@@ -106,9 +104,9 @@ struct SStrBuddy * StrBuddyInit(uint32_t uiUnitNumber) {
     // set free
     SET_BUDDY_BLOCK_FREE(&pSStrBuddy->m_pMemUnitDescBase[0]);
     // set next to NULL
-    pSStrBuddy->m_pMemUnitDescBase[0].m_iNext = NULL_UNIT_NO;
+    SET_BUDDY_NEXT_UNIT(&pSStrBuddy->m_pMemUnitDescBase[0], NULL_UNIT_NO);
     // insert to biggest order list
-    pSStrBuddy->m_pIOrderArray[pSStrBuddy->m_u32BuddyOrder] = 0;
+    SET_BUDDY_NEXT_UNIT(&pSStrBuddy->m_pIOrderArray[pSStrBuddy->m_u32BuddyOrder], 0);
     DisplayOrderArray(pSStrBuddy);
     return pSStrBuddy;
 }
@@ -129,7 +127,7 @@ char * StrBuddyAlloc(struct SStrBuddy * pSStrBuddy, uint32_t uiSize) {
     uint32_t uiRealSize = (uint32_t)AlignTo((uint64_t)uiSize, BUDDY_UNIT_SZ);
     uint32_t uiUnitsNeeded = uiRealSize / BUDDY_UNIT_SZ;
     uint32_t uiUnitsPower = 0;
-    uint32_t uiRealUnitsNeeded = NearestPowerof2(uiUnitsNeeded, &uiUnitsPower);
+    uint32_t uiRealUnitsNeeded = NextPowerof2(uiUnitsNeeded, &uiUnitsPower);
     // request for too much memory
     if(uiUnitsNeeded > uiRealUnitsNeeded) { 
         return NULL;
@@ -137,7 +135,7 @@ char * StrBuddyAlloc(struct SStrBuddy * pSStrBuddy, uint32_t uiSize) {
 
     //    printf("req_size -> %u : aligned_size -> %u : units_needed -> %u : adjusted_units -> %u : power -> %u\n",
     //            uiSize, uiRealSize, uiUnitsNeeded, uiRealUnitsNeeded, uiUnitsPower);
-    int iToAlloc = NULL_UNIT_NO;
+    uint32_t iToAlloc = NULL_UNIT_NO;
     uint32_t uiPower;
     for(uiPower=uiUnitsPower;uiPower<=pSStrBuddy->m_u32BuddyOrder;uiPower++) {
         iToAlloc = pSStrBuddy->m_pIOrderArray[uiPower];
@@ -153,21 +151,22 @@ char * StrBuddyAlloc(struct SStrBuddy * pSStrBuddy, uint32_t uiSize) {
     // update mem usage info
     pSStrBuddy->m_u32StrMemUsed += (uiRealUnitsNeeded * BUDDY_UNIT_SZ);
     // delete from list
-    struct SMemUnitDescriptor * pToAlloc = DESC_OF_UNIT_NO(pSStrBuddy, iToAlloc);
-    pSStrBuddy->m_pIOrderArray[uiPower] = pToAlloc->m_iNext;
+    uint32_t * pToAlloc = DESC_OF_UNIT_NO(pSStrBuddy, iToAlloc);
+    SET_BUDDY_NEXT_UNIT(&pSStrBuddy->m_pIOrderArray[uiPower], 
+            BUDDY_NEXT_UNIT(pToAlloc));
 
     // split if needed
     for(uint32_t uiPowerIdx=uiUnitsPower;uiPowerIdx<uiPower;uiPowerIdx++) {
         // find buddy
-        struct SMemUnitDescriptor * pBuddy = pToAlloc + (1<<uiPowerIdx);
-        int iBuddyNo = iToAlloc + (1<<uiPowerIdx);
+        uint32_t * pBuddy = pToAlloc + (1<<uiPowerIdx);
+        uint32_t iBuddyNo = iToAlloc + (1<<uiPowerIdx);
         // set buddy order
         SET_BUDDY_ORDER(pBuddy, uiPowerIdx);
         // set buddy free
         SET_BUDDY_BLOCK_FREE(pBuddy);
         // insert to free list
-        pBuddy->m_iNext = pSStrBuddy->m_pIOrderArray[uiPowerIdx];
-        pSStrBuddy->m_pIOrderArray[uiPowerIdx] = iBuddyNo;
+        SET_BUDDY_NEXT_UNIT(pBuddy, pSStrBuddy->m_pIOrderArray[uiPowerIdx]);
+        SET_BUDDY_NEXT_UNIT(&pSStrBuddy->m_pIOrderArray[uiPowerIdx], iBuddyNo);
     }
 
     // set the allocated buddy block to new order and taken
@@ -180,15 +179,17 @@ char * StrBuddyAlloc(struct SStrBuddy * pSStrBuddy, uint32_t uiSize) {
 // delete from old list of order 'uiOrder'
 // return 0 on success, -1 on error (no entry found)
 static inline int DeleteFromOrderList(struct SStrBuddy * pSStrBuddy, 
-        int iBuddyNo, uint32_t u32Order) {
-    int *iNo = &pSStrBuddy->m_pIOrderArray[u32Order];
-    while(*iNo != NULL_UNIT_NO) {
-        struct SMemUnitDescriptor * pToDel = DESC_OF_UNIT_NO(pSStrBuddy, *iNo);
-        if(*iNo == iBuddyNo) {
-            *iNo = pToDel->m_iNext;
+        uint32_t iBuddyNo, uint32_t u32Order) {
+    uint32_t *iNo = &pSStrBuddy->m_pIOrderArray[u32Order];
+    uint32_t uiUnitNo = BUDDY_NEXT_UNIT(iNo);
+    while(uiUnitNo != NULL_UNIT_NO) {
+        if(uiUnitNo == iBuddyNo) {
+            SET_BUDDY_NEXT_UNIT(iNo, 
+                    BUDDY_NEXT_UNIT(DESC_OF_UNIT_NO(pSStrBuddy, uiUnitNo)));
             return 0;
         }
-        iNo = &pToDel->m_iNext;
+        iNo = DESC_OF_UNIT_NO(pSStrBuddy, uiUnitNo);
+        uiUnitNo = BUDDY_NEXT_UNIT(iNo);
     }
     return -1;
 }
@@ -200,20 +201,20 @@ int StrBuddyFree(struct SStrBuddy * pSStrBuddy, char * pMem) {
         fprintf(stderr, "strBuddyFree : invalid addr -> %0x\n", pMem);
         return -1;
     }
-    int iUnitNo = (pMem - pSStrBuddy->m_pStrMemBase) / BUDDY_UNIT_SZ;
-    struct SMemUnitDescriptor * pUnit = pSStrBuddy->m_pMemUnitDescBase + iUnitNo;
+    uint32_t iUnitNo = (pMem - pSStrBuddy->m_pStrMemBase) / BUDDY_UNIT_SZ;
+    uint32_t * pUnit = pSStrBuddy->m_pMemUnitDescBase + iUnitNo;
     if(IS_BUDDY_BLOCK_FREE(pUnit)) {
         fprintf(stderr, "strBuddyFree : try to free a free mem -> %0x\n", pMem);
         return -1;
     }
-    uint32_t uiOrder=BUDDY_ORDER(pUnit);
+    uint32_t uiOrder = BUDDY_ORDER(pUnit);
     // update mem usage info
     pSStrBuddy->m_u32StrMemUsed -= (1<<uiOrder) * BUDDY_UNIT_SZ;
     // try to combine
     for(;uiOrder<pSStrBuddy->m_u32BuddyOrder;uiOrder++) {
         // find buddy
         int iBuddyNo = iUnitNo ^ (1 << uiOrder);
-        struct SMemUnitDescriptor * pBuddy = DESC_OF_UNIT_NO(pSStrBuddy, iBuddyNo); 
+        uint32_t * pBuddy = DESC_OF_UNIT_NO(pSStrBuddy, iBuddyNo); 
         // free & same order
         if(IS_BUDDY_BLOCK_FREE(pBuddy) &&
                 BUDDY_ORDER(pBuddy) == uiOrder) {
@@ -236,7 +237,7 @@ int StrBuddyFree(struct SStrBuddy * pSStrBuddy, char * pMem) {
     // need set to free state 
     // because the for-loop above may not be executed
     SET_BUDDY_BLOCK_FREE(pUnit);
-    pUnit->m_iNext = pSStrBuddy->m_pIOrderArray[uiOrder];
+    SET_BUDDY_NEXT_UNIT(pUnit, pSStrBuddy->m_pIOrderArray[uiOrder]);
     pSStrBuddy->m_pIOrderArray[uiOrder] = iUnitNo;
     return 0;
 }
@@ -280,6 +281,7 @@ int main(int argc, char *argv[]) {
 #endif
 
 
+    /*
     uint32_t uiCount = 0;
     while(StrBuddyAlloc(pSStrBuddy, 1380) != NULL) {
         uiCount++;
@@ -287,7 +289,6 @@ int main(int argc, char *argv[]) {
     printf("alloc 1380 -> cannot fufiled -> %u\n", uiCount);
     DisplayOrderArray(pSStrBuddy);
 
-    /*
     uiCount = 0;
     while(StrBuddyAlloc(pSStrBuddy, 768) != NULL) {
         uiCount++;
