@@ -25,52 +25,6 @@
 //     1      +   5   +     26
 // free&taken + order + unit_number 
 
-#define BUDDY_ORDER(pBuddyUnit)  ({  \
-        uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
-        uint32_t _order = (*_pBuddyUnit & BUDDY_ORDER_MASK);    \
-        (_order >> 26); })
-
-#define SET_BUDDY_ORDER(pBuddyUnit, buddy_order) do {    \
-    uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
-    uint32_t _order = (uint32_t)(buddy_order);  \
-    _order <<= 26;  \
-    *_pBuddyUnit &= (~BUDDY_ORDER_MASK); \
-    *_pBuddyUnit |= _order;  \
-} while (0)
-
-// is taken?
-#define IS_BUDDY_BLOCK_TAKEN(pBuddyUnit)    ({  \
-        uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
-        ((*_pBuddyUnit & BUDDY_TAKEN_FREE_MASK) == BUDDY_TAKEN_FREE_MASK);})
-
-// is free?
-#define IS_BUDDY_BLOCK_FREE(pBuddyUnit) ({  \
-        uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
-        ((*_pBuddyUnit & BUDDY_TAKEN_FREE_MASK) == 0);})
-
-// set taken
-#define SET_BUDDY_BLOCK_TAKEN(pBuddyUnit)    do {    \
-    uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
-    *_pBuddyUnit |= BUDDY_TAKEN_FREE_MASK; \
-} while (0)
-
-// set free
-#define SET_BUDDY_BLOCK_FREE(pBuddyUnit)    do {    \
-    uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
-    *_pBuddyUnit &= (~BUDDY_TAKEN_FREE_MASK); \
-} while (0)
-
-#define BUDDY_NEXT_UNIT(pBuddyUnit) ({    \
-        uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
-        (*_pBuddyUnit & BUDDY_NUMBER_MASK); })
-
-#define SET_BUDDY_NEXT_UNIT(pBuddyUnit, unit_no)  do {    \
-    uint32_t * _pBuddyUnit = (uint32_t*)(pBuddyUnit); \
-    uint32_t _unitno = (uint32_t)(unit_no); \
-    *_pBuddyUnit &= (~BUDDY_NUMBER_MASK);   \
-    *_pBuddyUnit |= _unitno;    \
-} while (0)
-
 struct SStrBuddy {
     // total mem 
     char * m_pMem;

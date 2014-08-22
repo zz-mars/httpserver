@@ -5,6 +5,47 @@
 #include <string.h>
 #include <unistd.h>
 
+static inline uint32_t BUDDY_ORDER(uint32_t * pBuddyUnit) {
+    uint32_t uiOrder = *pBuddyUnit & BUDDY_ORDER_MASK;
+    return uiOrder >> 26;
+}
+
+static inline void SET_BUDDY_ORDER(uint32_t * pBuddyUnit, uint32_t uiOrder) {
+    uiOrder <<= 26;
+    uiOrder &= BUDDY_ORDER_MASK;
+    *pBuddyUnit &= (~BUDDY_ORDER_MASK);
+    *pBuddyUnit |= uiOrder;
+}
+
+static inline uint32_t BUDDY_NEXT_UNIT(uint32_t * pBuddyUnit) {
+    return *pBuddyUnit & BUDDY_NUMBER_MASK;
+}
+
+static inline int SET_BUDDY_NEXT_UNIT(uint32_t * pBuddyUnit, uint32_t uNextNo) {
+    if(uNextNo >= MAX_BUDDY_UNIT_NUM) {
+        return -1;
+    }
+    *pBuddyUnit &= (~BUDDY_NUMBER_MASK);
+    *pBuddyUnit |= uNextNo;
+    return 0;
+}
+
+static inline uint32_t IS_BUDDY_BLOCK_TAKEN(uint32_t * pBuddyUnit) {
+    return (*pBuddyUnit & BUDDY_TAKEN_FREE_MASK) == BUDDY_TAKEN_FREE_MASK;
+}
+
+static inline uint32_t IS_BUDDY_BLOCK_FREE(uint32_t * pBuddyUnit) {
+    return (*pBuddyUnit & BUDDY_TAKEN_FREE_MASK) == 0;
+}
+
+static inline void SET_BUDDY_BLOCK_TAKEN(uint32_t * pBuddyUnit) {
+    *pBuddyUnit |= BUDDY_TAKEN_FREE_MASK;
+}
+
+static inline void SET_BUDDY_BLOCK_FREE(uint32_t * pBuddyUnit) {
+    *pBuddyUnit &= (~BUDDY_TAKEN_FREE_MASK);
+}
+
 static inline uint32_t * DESC_OF_UNIT_NO(struct SStrBuddy * pSStrBuddy, uint32_t iUnitNo) {
     return (pSStrBuddy->m_pMemUnitDescBase + iUnitNo);
 }
