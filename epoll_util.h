@@ -1,6 +1,7 @@
 #ifndef _EPOLL_UTIL_H
 #define _EPOLL_UTIL_H
 
+#ifdef _HTTP_SERV_H
 #include <stdint.h>
 #include <sys/epoll.h>
 #include <stdio.h>
@@ -37,4 +38,5 @@ int set_nonblocking(int iSockFd);
                         (_pEvent->events & EPOLLHUP) ||  \
                         !(_pEvent->events & EPOLLIN)); }) 
 
+#endif
 #endif

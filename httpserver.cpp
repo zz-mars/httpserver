@@ -1,3 +1,4 @@
+#ifdef _HTTP_SERV_H
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -304,3 +305,4 @@ destroy_ht_and_fail:
 
 #endif
 
+#endif

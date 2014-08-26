@@ -1,3 +1,4 @@
+#ifdef _HTTP_SERV_H
 #include "epoll_util.h"
 
 static int RawRegisterEvent(int iEpollFd, int iSockfd, uint8_t uiOP) {
@@ -43,3 +44,5 @@ int set_nonblocking(int iSockFd) {
     }
     return 0;
 }
+#endif
+
