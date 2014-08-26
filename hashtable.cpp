@@ -1,90 +1,49 @@
 #include "hashtable.h"
-#include <sys/shm.h>
-#include <errno.h>
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include "mpq_hash.h"
-#include "utility.h"
 
-// serial number as value
-static uint64_t g_u64ElementVal;
-// max element number
-static uint32_t g_u32MaxElementNum;
-// hash space
-static struct SHashItem * g_szstHashItems;
-// slots number in each hash
-static uint32_t g_u32ElementPerHash;
-// hash times
-static uint32_t g_u32HashTimes;
-// primes used for each hash
-static uint32_t * g_szu32HashPrimes;
-// hash table slots used
-static uint32_t g_u32UsedSize;
-
-// memory 
-static void * g_pHashTableSpace;
-
-// initialized?
-static bool g_bHashInitialized = false;
-
-#define RET_IF_NOT_INIT(ret)   do {    \
-    if(!g_bHashInitialized) {   \
-        fprintf(stderr, "hash table not initialized yet!\n");   \
-        return ret;   \
-    }   \
-} while(0)
-
-static void GeneratePrimes(void) {
-    int iMax = g_u32ElementPerHash;
+void C2DHashTable::GeneratePrimes(void) {
+    int iMax = m_u32ElementPerHash;
     iMax -= (iMax%2==0)?1:0;
     uint32_t uiPrimeIdx = 0;
-    while(iMax > 0 && uiPrimeIdx < g_u32HashTimes) {
+    while(iMax > 0 && uiPrimeIdx < m_u32HashTimes) {
         if(IsPrime(iMax)) {
-            g_szu32HashPrimes[uiPrimeIdx++] = iMax;
+            m_pHashPrimes[uiPrimeIdx++] = iMax;
         }
         iMax-=2;
     }
-    assert(uiPrimeIdx == g_u32HashTimes);
+    assert(uiPrimeIdx == m_u32HashTimes);
 }
 
 /* InitHashItems : initialize the hash items in each hash */ 
-static void InitHashItems(void) {
-    for(uint32_t uiHashIdx=0;uiHashIdx<g_u32HashTimes;uiHashIdx++) {
-        struct SHashItem *pHashItems = g_szstHashItems + (uiHashIdx * g_u32ElementPerHash);
-        for(uint32_t uiHashItemIdx=0;uiHashItemIdx<g_szu32HashPrimes[uiHashIdx];uiHashItemIdx++) {
-            pHashItems[uiHashItemIdx].m_u64Key = 0;
-            pHashItems[uiHashItemIdx].m_u64Value = 0;
-            pHashItems[uiHashItemIdx].m_iUsed = HASH_ITEM_FREE;
+void C2DHashTable::InitHashItems(void) {
+    for(uint32_t uiHashIdx=0;uiHashIdx<m_u32HashTimes;uiHashIdx++) {
+        struct SHashItem *pHashItems = m_pHashItems + (uiHashIdx * m_u32ElementPerHash);
+        for(uint32_t uiHashItemIdx=0;uiHashItemIdx<m_pHashPrimes[uiHashIdx];uiHashItemIdx++) {
+            pHashItems[uiHashItemIdx].m_u64Key = NULL;
+            pHashItems[uiHashItemIdx].m_pValue = NULL;
+            pHashItems[uiHashItemIdx].m_uiUsed = HASH_ITEM_FREE;
         }
     }
 }
 
-/* HashTableInit : initialize hash table
+/* Init : initialize hash table
  * Basically this function allocates memory for the hash items,
  * then initialize some variables.
  * Return 0 on success, -1 on error */
-int HashTableInit(int iShmKey, uint32_t uiMaxElementNum, uint32_t uiHashTimes = DEFAULT_HASH_TIMES) {
-    if(g_bHashInitialized) {
-        fprintf(stderr, "already initialized\n");
-        return 0;
-    }
+int C2DHashTable::Init(int iShmKey, uint32_t uiMaxElementNum, uint32_t uiHashTimes = DEFAULT_HASH_TIMES) {
+    RET_IF_INITED(0);
+    m_bInitialized = false;
     if(uiMaxElementNum <= 25000) {
         fprintf(stderr, "uiMaxElementNum too small -> %u\n", uiMaxElementNum);
         return -1;
     }
-    // value for k-v start with 1
-    // 0 is reserved for non-existing key
-    g_u64ElementVal = 1;
-    g_u32HashTimes = uiHashTimes;
-    g_u32MaxElementNum = (uint32_t)AlignTo((uint64_t)uiMaxElementNum, (uint64_t)g_u32HashTimes);
-    g_u32ElementPerHash = g_u32MaxElementNum / g_u32HashTimes;
-    g_u32UsedSize = 0;
+    m_u32HashTimes = uiHashTimes;
+    m_u32ElementNum = (uint32_t)AlignTo((uint64_t)uiMaxElementNum, (uint64_t)m_u32HashTimes);
+    m_u32ElementPerHash = m_u32ElementNum / m_u32HashTimes;
+    m_u32UsedElement = 0;
     int iFlags = 0666;
     // make sure enough memory is allocated
-    uint32_t u32MemoryBytes = (g_u32HashTimes + 1) * sizeof(uint32_t) + 
-        (g_u32MaxElementNum + 1) * sizeof(struct SHashItem);
+    uint32_t u32MemoryBytes = (m_u32HashTimes + 1) * sizeof(uint32_t) + 
+        (m_u32ElementNum + 1) * sizeof(struct SHashItem);
     // try to get the existed shm
     int iShmId = shmget(iShmKey, u32MemoryBytes, iFlags & (~IPC_CREAT));
     if(iShmId == -1) {
@@ -96,41 +55,32 @@ int HashTableInit(int iShmKey, uint32_t uiMaxElementNum, uint32_t uiHashTimes = 
         }
     }
     // attach to shm
-    g_pHashTableSpace = shmat(iShmId, NULL, 0);
-    g_szu32HashPrimes = (uint32_t*)AlignTo((uint64_t)g_pHashTableSpace, sizeof(uint32_t));
-    g_szstHashItems = (struct SHashItem*)AlignTo((uint64_t)(g_szu32HashPrimes+g_u32HashTimes), sizeof(SHashItem));
+    m_pTotalMem = shmat(iShmId, NULL, 0);
+    m_pHashPrimes = (uint32_t*)AlignTo((uint64_t)m_pTotalMem, sizeof(uint32_t));
+    m_pHashItems = (struct SHashItem*)AlignTo((uint64_t)(m_pHashPrimes+m_u32HashTimes), sizeof(SHashItem));
     GeneratePrimes();
     InitHashItems();
+    // buddy system
+    m_pBuddy = StrBuddyInit(m_u32ElementNum * 5 / 4);
+    if(!m_pBuddy) {
+        return INT_FATAL_ERROR;
+    }
     // set initialized
-    g_bHashInitialized = true;
+    m_bInitialized = true;
     return 0;
 }
 
-/* HashTableDestory : destory hash table
- * Basically this function free the space and
- * do some cleanups.. 
- * return 0 on success, -1 if not initialized */
-int HashTableDestory(void) {
-    RET_IF_NOT_INIT(-1);
-    shmdt(g_pHashTableSpace);
-    g_bHashInitialized = false;
-    g_pHashTableSpace = NULL;
-    g_szu32HashPrimes = NULL;
-    g_szstHashItems = NULL;
-    return 0;
-}
-
-/* RawHashTableGet : search for a given key 
+/* RawGet : search for a given key 
  * return pointer to the SHashItem if found,
  * NULL if not found */
-static struct SHashItem * RawHashTableGet(char *pKey) {
+struct SHashItem * C2DHashTable::RawGet(char *pKey) {
     RET_IF_NOT_INIT(NULL);
     uint64_t u64HashKey = GetMPQHashFromString(pKey, true);
-    for(uint32_t uiHashIdx=0;uiHashIdx<g_u32HashTimes;uiHashIdx++) {
-        uint32_t u32HashPos = u64HashKey % g_szu32HashPrimes[uiHashIdx];
-        u32HashPos += (uiHashIdx * g_u32ElementPerHash);
-        struct SHashItem * pstHashItem = &g_szstHashItems[u32HashPos];
-        if(pstHashItem->m_iUsed == HASH_ITEM_TAKEN && 
+    for(uint32_t uiHashIdx=0;uiHashIdx<m_u32HashTimes;uiHashIdx++) {
+        uint32_t u32HashPos = u64HashKey % m_pHashPrimes[uiHashIdx];
+        u32HashPos += (uiHashIdx * m_u32ElementPerHash);
+        struct SHashItem * pstHashItem = &m_pHashItems[u32HashPos];
+        if(pstHashItem->m_uiUsed == HASH_ITEM_TAKEN && 
                 pstHashItem->m_u64Key == u64HashKey) {
             return pstHashItem;
         }
@@ -139,40 +89,50 @@ static struct SHashItem * RawHashTableGet(char *pKey) {
     return NULL;
 }
 
-/* HashTableGet : get from hash table for pKey.
- * Return corresponding u64Value of struct SHashItem if pKey is found,
- * otherwise return 0. */
-uint64_t HashTableGet(char *pKey) {
-    struct SHashItem * pstHashItem = RawHashTableGet(pKey);
-    return pstHashItem==NULL?0:pstHashItem->m_u64Value;
+/* Get : get value from hash table for pKey.
+ * Return corresponding m_pValue of struct SHashItem if pKey is found,
+ * otherwise return NULL. */
+char * C2DHashTable::Get(char *pKey) {
+    struct SHashItem * pstHashItem = RawGet(pKey);
+    return pstHashItem==NULL?NULL:pstHashItem->m_pValue;
 }
 
-/* HashTableDelete : delete a given key
+/* Delete : delete a given key
  * return 0 on success, -1 on error */
-int HashTableDelete(char *pKey) {
-    struct SHashItem * pstHashItem = RawHashTableGet(pKey);
+int C2DHashTable::Delete(char *pKey) {
+    struct SHashItem * pstHashItem = RawGet(pKey);
     if(pstHashItem == NULL) {
         return -1;
     }
-    pstHashItem->m_u64Key = pstHashItem->m_u64Value = 0;
-    pstHashItem->m_iUsed = HASH_ITEM_FREE;
-    g_u32UsedSize--;
+    // free value mem into buddy system
+    if(StrBuddyFree(m_pBuddy, pstHashItem->m_pValue) != 0) {
+        // fatal error
+        return INT_FATAL_ERROR;
+    }
+    // reset key & value
+    pstHashItem->m_u64Key = 0;
+    pstHashItem->m_pValue = NULL;
+    pstHashItem->m_uiUsed = HASH_ITEM_FREE;
+    // update usage info
+    m_u32UsedElement--;
     return 0;
 }
 
-/* HashTableSet : set key 'pKey' to hash table 
+/* Set : set key 'pKey' to hash table 
  * If key already exists, set it to the new value.
  * Return 0 on success, -1 on error */
-int HashTableSet(char *pKey) {
+int C2DHashTable::Set(char *pKey, char *pVal) {
     RET_IF_NOT_INIT(-1);
+    char * pOldValue = NULL;
     uint64_t u64HashKey = GetMPQHashFromString(pKey, true);
-    for(uint32_t uiHashIdx=0;uiHashIdx<g_u32HashTimes;uiHashIdx++) {
-        uint32_t u32HashPos = u64HashKey % g_szu32HashPrimes[uiHashIdx];
-        u32HashPos += (uiHashIdx * g_u32ElementPerHash);
-        struct SHashItem * pstHashItem = &g_szstHashItems[u32HashPos];
-        if(pstHashItem->m_iUsed == HASH_ITEM_TAKEN) {
+    for(uint32_t uiHashIdx=0;uiHashIdx<m_u32HashTimes;uiHashIdx++) {
+        uint32_t u32HashPos = u64HashKey % m_pHashPrimes[uiHashIdx];
+        u32HashPos += (uiHashIdx * m_u32ElementPerHash);
+        struct SHashItem * pstHashItem = &m_pHashItems[u32HashPos];
+        if(pstHashItem->m_uiUsed == HASH_ITEM_TAKEN) {
             if(pstHashItem->m_u64Key == u64HashKey) {
-                g_u32UsedSize--;
+                // old value need free
+                pOldValue = pstHashItem->m_pValue;
                 goto set_to_hash;
             }
             continue;
@@ -180,9 +140,25 @@ int HashTableSet(char *pKey) {
 set_to_hash:
         // set to hash if key already exists or free slot is found
         pstHashItem->m_u64Key = u64HashKey;
-        pstHashItem->m_u64Value = ++g_u64ElementVal;
-        pstHashItem->m_iUsed = HASH_ITEM_TAKEN;
-        g_u32UsedSize++;
+        uint32_t uValueLen = strlen(pVal);
+        pstHashItem->m_pValue = StrBuddyAlloc(m_pBuddy, uValueLen + 1);
+        if(!pstHashItem->m_pValue) {
+            // set to old value and fail
+            pstHashItem->m_pValue = pOldValue;
+            return -1;
+        }
+        // copy value
+        strncpy(pstHashItem->m_pValue, pVal, uValueLen);
+        pstHashItem->m_pValue[uValueLen] = '\0';
+        if(pOldValue) {
+            if(StrBuddyFree(m_pBuddy, pOldValue) != 0) {
+                // fatal error
+                return INT_FATAL_ERROR;
+            }
+        } else {
+            pstHashItem->m_uiUsed = HASH_ITEM_TAKEN;
+            m_u32UsedElement++;
+        }
         return 0;
     }
     // set to hash fail, no free slots
@@ -190,26 +166,23 @@ set_to_hash:
 }
 
 /* return used element size of hash table */
-uint32_t HashTableGetUsedElementSize(void) {
+uint32_t C2DHashTable::GetUsedElementSize(void) {
     RET_IF_NOT_INIT(0);
-    return g_u32UsedSize;
+    return m_u32UsedElement;
 }
 
-static int HashTableInfo(void) {
+int C2DHashTable::Info(void) {
     RET_IF_NOT_INIT(-1);
     printf("---------------- hash table ---------------- \n");
-    printf("g_u64ElementVal -> %llu\n", g_u64ElementVal); 
-    printf("g_u32MaxElementNum -> %u\n", g_u32MaxElementNum);
-    printf("g_u32ElementPerHash -> %u\n", g_u32ElementPerHash);
-    printf("g_u32HashTimes -> %u\n", g_u32HashTimes);
-    printf("g_u32UsedSize -> %u\n", g_u32UsedSize);
-    printf("g_pHashTableSpace -> %0x\n", g_pHashTableSpace);
-    printf("g_szu32HashPrimes -> %0x\n", g_szu32HashPrimes);
-    printf("g_szstHashItems -> %0x\n", g_szstHashItems);
+    printf("m_u32ElementNum -> %u\n", m_u32ElementNum);
+    printf("m_u32ElementPerHash -> %u\n", m_u32ElementPerHash);
+    printf("m_u32HashTimes -> %u\n", m_u32HashTimes);
+    printf("m_u32UsedElement -> %u\n", m_u32UsedElement);
 
+    DisplayOrderArray(m_pBuddy);
 #ifdef _TEST_PRIMES
-    for(int i=0;i<g_u32HashTimes;i++) {
-        printf("hash_prime[%u] -> %u\n", i, g_szu32HashPrimes[i]);
+    for(uint32_t i=0;i<m_u32HashTimes;i++) {
+        printf("hash_prime[%u] -> %u\n", i, m_pHashPrimes[i]);
     }
 #endif
     return 0;
@@ -222,7 +195,7 @@ enum {
 };
 
 /* HashTableLoadFile : load data from file and insert into hash table */
-int HashTableLoadFile(const char *pFile, uint8_t u8Op) {
+int C2DHashTable::LoadFile(const char *pFile, C2DHashTable & oHashTable, uint8_t u8Op) {
     RET_IF_NOT_INIT(-1);
     FILE *pFp = fopen(pFile, "r");
     if(!pFp) {
@@ -231,22 +204,52 @@ int HashTableLoadFile(const char *pFile, uint8_t u8Op) {
     }
 #define TMP_BUF_SZ  1024
     static char szTmpBuf[TMP_BUF_SZ];
+    uint32_t uOpFail = 0;
     while(fgets(szTmpBuf, sizeof(szTmpBuf), pFp)) {
         szTmpBuf[strlen(szTmpBuf)-1] = '\0';
+        char *pKey = szTmpBuf;
+        char *pVal = pKey;
+        while(*pVal) {
+            if(*pVal == ' ' || *pVal == '\t') {
+                break;
+            }
+            pVal++;
+        }
+        *pVal++ = '\0';
+        while(*pVal == ' ' || *pVal == '\t') pVal++;
+
+        int iValLen = strlen(pVal);
+        if(iValLen > 1) {
+            if(pVal[iValLen-1] == '\n') {
+                pVal[iValLen-1] = '\0';
+            }
+        } else {
+            pVal = "default value";
+        }
+
         switch(u8Op) {
             case HASH_OP_SET:
-                if(HashTableSet(szTmpBuf) != 0) {
-                    fprintf(stderr, "hash table set fail -> %s\n", szTmpBuf);
+                if(oHashTable.Set(pKey, pVal) != 0) {
+                    uOpFail++;
+                   // fprintf(stderr, "hash table set fail : k -> %s v -> %s\n", 
+                   //        pKey, pVal);
                 }
                 break;
             case HASH_OP_GET:
-                if(HashTableGet(szTmpBuf) == 0) {
-                    fprintf(stderr, "hash table get fail -> %s\n", szTmpBuf);
+                pVal = oHashTable.Get(pKey);
+                if(pVal == NULL) {
+                    uOpFail++;
+                   // fprintf(stderr, "hash table get fail -> %s\n", pKey);
+#ifdef _GET_DETAIL_INFO
+                } else {
+                    printf("get ok : k : %s v %s\n", pKey, pVal);
+#endif
                 }
                 break;
             case HASH_OP_DEL:
-                if(HashTableDelete(szTmpBuf) == -1) {
-                    fprintf(stderr, "hash table delete fail -> %s\n", szTmpBuf);
+                if(oHashTable.Delete(pKey) == -1) {
+                    uOpFail++;
+                   // fprintf(stderr, "hash table delete fail -> %s\n", szTmpBuf);
                 }
                 break;
             default:
@@ -254,6 +257,7 @@ int HashTableLoadFile(const char *pFile, uint8_t u8Op) {
                 return -1;
         }
     }
+    printf("op fail -> %u\n", uOpFail);
     fclose(pFp);
     return 0;
 }
@@ -267,38 +271,21 @@ int main(int argc, char *argv[]) {
     }
     int iShmKey = atoi(argv[1]);
     uint32_t uMaxElementNum = (uint32_t)atoi(argv[2]);
-    if(HashTableInit(iShmKey, uMaxElementNum) != 0) {
-        fprintf(stderr, "Hash table init fail\n");
+
+    C2DHashTable & oHashTable = C2DHashTable::GetInstance();
+    if(oHashTable.Init(iShmKey, uMaxElementNum) != 0) {
         return 1;
     }
 
-    HashTableInfo();
+    oHashTable.LoadFile(argv[3], oHashTable, HASH_OP_SET);
+    oHashTable.Info();
 
-#ifdef _TEST_PRIMES
-    for(int j=0;j<500;j++) {
-        if(IsPrime(j)) {
-            printf("%u ", j);
-        }
-    }
-    printf("\n");
-#endif
-#ifdef _TEST_REINIT
-    if(HashTableInit(iShmKey, uMaxElementNum) != 0) {
-        fprintf(stderr, "Hash table init fail\n");
-        return 1;
-    }
-#endif
+    oHashTable.LoadFile(argv[3], oHashTable, HASH_OP_GET);
+    oHashTable.Info();
 
-    HashTableLoadFile(argv[3], HASH_OP_SET);
-    HashTableInfo();
+    oHashTable.LoadFile(argv[3], oHashTable, HASH_OP_DEL);
+    oHashTable.Info();
 
-    HashTableLoadFile(argv[3], HASH_OP_GET);
-    HashTableInfo();
-
-    HashTableLoadFile(argv[3], HASH_OP_DEL);
-    HashTableInfo();
-
-    HashTableDestory();
     return 0;
 }
 

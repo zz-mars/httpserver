@@ -147,13 +147,14 @@ enum {
 
 
 /* SendResp : prepare request data and send back to client */
-static int SendResp(int iSockFd, int iRespCode, uint64_t u64GetVal, char *pBuf, int iBufSz) {
+static int SendResp(int iSockFd, int iRespCode, 
+        char * pVal, char *pBuf, int iBufSz) {
 #define MAX_MSG_SZ  1024
     static char szMsg[MAX_MSG_SZ] = {0};
     int iMsgLen = snprintf(szMsg, MAX_MSG_SZ, "<html><head>From grantchen's http server</head><body>");
     switch (iRespCode) {
         case HTTP_RESP_OK:
-            iMsgLen += snprintf(szMsg+iMsgLen, MAX_MSG_SZ-iMsgLen, " Get ok -> %llu </body></html>", u64GetVal);
+            iMsgLen += snprintf(szMsg+iMsgLen, MAX_MSG_SZ-iMsgLen, " Get ok -> %s </body></html>", pVal);
             break;
         case HTTP_RESP_BAD_REQ:
             iMsgLen += snprintf(szMsg+iMsgLen, MAX_MSG_SZ-iMsgLen, " bad request </body></html>");
@@ -211,21 +212,22 @@ static int DoOnRead(int iSockFd) {
     printf("request -> \n%s\n", szPublicBuf);
     char *pArg;
     int iRespCode;
-    uint64_t u64GetVal;
+    char * pVal = NULL;
     switch(ParseRequest(szPublicBuf,&pArg)) {
         case REQ_GET:
-            u64GetVal = HashTableGet(pArg);
-            iRespCode = u64GetVal==0?HTTP_RESP_NOT_FOUND:HTTP_RESP_OK;
+            pVal = C2DHashTable::GetInstance().Get(pArg);
+            iRespCode = pVal==NULL?HTTP_RESP_NOT_FOUND:HTTP_RESP_OK;
             break;
         case REQ_INVALID:
         default:
             iRespCode = HTTP_RESP_BAD_REQ;
             break;
     }
-    SendResp(iSockFd, iRespCode, u64GetVal, szPublicBuf, MAX_BUF_SZ);
+    SendResp(iSockFd, iRespCode, pVal, szPublicBuf, MAX_BUF_SZ);
     return 0;
 }
 
+#ifdef _OLD_HOMEWORK
 int main(int argc, char *argv[]) {
     if(argc != 5) {
         fprintf(stderr, "Usage : %s [ip] [port] [shm_key] [max_element_sz]\n", argv[0]);
@@ -234,7 +236,8 @@ int main(int argc, char *argv[]) {
 
     int iShmKey = atoi(argv[3]);
     uint32_t uiMaxElementNum = atoi(argv[4]);
-    if(HashTableInit(iShmKey, uiMaxElementNum, DEFAULT_HASH_TIMES) != 0) {
+    if(C2DHashTable::GetInstance().Init(iShmKey, 
+                uiMaxElementNum, DEFAULT_HASH_TIMES) != 0) {
         exit(EXIT_FAILURE);
     }
 
@@ -298,4 +301,6 @@ destroy_ht_and_fail:
     HashTableDestory();
     exit(iExitStatus);
 }
+
+#endif
 

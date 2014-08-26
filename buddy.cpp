@@ -60,7 +60,7 @@ static inline uint32_t NEXT_UNIT_NO(struct SStrBuddy * pSStrBuddy, uint32_t iUni
 
 // memory layout
 // SStrBuddy + order_array + desc_array + str_mem_region
-static inline void DisplayOrderArray(struct SStrBuddy *pSStrBuddy) {
+void DisplayOrderArray(struct SStrBuddy *pSStrBuddy) {
     printf("---------------- order-array ----------------\n");
     for(uint32_t uiOrder=0;uiOrder<=pSStrBuddy->m_u32BuddyOrder;uiOrder++) {
         uint32_t uiOrderNum = 0;
@@ -148,7 +148,6 @@ struct SStrBuddy * StrBuddyInit(uint32_t uiUnitNumber) {
     SET_BUDDY_NEXT_UNIT(&pSStrBuddy->m_pMemUnitDescBase[0], NULL_UNIT_NO);
     // insert to biggest order list
     SET_BUDDY_NEXT_UNIT(&pSStrBuddy->m_pIOrderArray[pSStrBuddy->m_u32BuddyOrder], 0);
-    DisplayOrderArray(pSStrBuddy);
     return pSStrBuddy;
 }
 

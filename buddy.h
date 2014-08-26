@@ -64,6 +64,8 @@ char * StrBuddyAlloc(struct SStrBuddy * pSStrBuddy, uint32_t uiSize);
 // return 0 on success, -1 on error
 int StrBuddyFree(struct SStrBuddy * pSStrBuddy, char * pMem);
 
+void DisplayOrderArray(struct SStrBuddy *pSStrBuddy);
+
 // single instance initialized in main
 extern struct SStrBuddy * g_pSStrBuddy;
 
